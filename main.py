@@ -125,8 +125,15 @@ def make_minimal_name(name):
     return minimal_name
 
 
+def make_acronym(full_name):
+    words = full_name.split(" ")
+    acronym = "".join([word[0] for word in words])
+    return acronym
+
+
 def deduplicate_institutions(institutions):
-    for current_institution in institutions:
+    for index, current_institution in enumerate(institutions):
+        print(index, index/len(institutions) * 100, "%")
         if len(current_institution.names) != 1:
             continue
 
@@ -135,19 +142,28 @@ def deduplicate_institutions(institutions):
 
         current_min_name = make_minimal_name(
             current_institution.best_name)
+        current_acronym = make_acronym(current_institution.best_name)
         for institution_match_candidate in institutions:
             if institution_match_candidate.flagged_for_deletion:
                 continue
             candidate_min_name = make_minimal_name(
+                institution_match_candidate.best_name)
+            candidate_acronym = make_acronym(
                 institution_match_candidate.best_name)
             if current_min_name == candidate_min_name:
                 institution_match_candidate.merge(current_institution)
                 break
             elif fuzz.ratio(current_min_name, candidate_min_name) > 90:
                 institution_match_candidate.merge(current_institution)
-                print(current_institution.best_name, "|",
-                      institution_match_candidate.best_name)
                 break
+            elif len(current_institution.best_name) < 5 or len(institution_match_candidate.best_name) < 5:
+                if fuzz.ratio(current_institution.best_name, candidate_acronym) > 90 \
+                        or fuzz.ratio(current_acronym, institution_match_candidate.best_name) > 90:
+                    institution_match_candidate.merge(current_institution)
+                    print(current_institution.best_name, "|",
+                          institution_match_candidate.best_name)
+                    input()
+                    break
         filtered_institutions = []
         for institution in institutions:
             if not institution.flagged_for_deletion:
