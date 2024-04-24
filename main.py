@@ -11,14 +11,91 @@ POSSIBLE_RANKINGS = [
 ]
 
 
+class Institution:
+    """
+    Simple class to represent an institution.
+    """
+
+    def __init__(self, id, name, city, state, country):
+        self.id: int = id
+        self.names: list = [name]
+        self.best_name: str = name
+        self.teams: list = []
+        self.city: str = city
+        self.state: str = state
+        self.country: str = country
+        self.flagged_for_deletion = False
+
+    def update_best_name(self):
+        """
+        Guess "real" institution name is most common name.
+        """
+        self.best_name = max(set(self.names), key=self.names.count)
+
+    def add_team(self, team):
+        self.teams.append(team)
+
+    def merge(self, other):
+        if self is other:
+            # Refuse to merge with self
+            return
+        self.names += other.names
+        self.teams += other.teams
+        for team in other.teams:
+            team.institution = self
+        self.update_best_name()
+        other.flagged_for_deletion = True
+
+    def add_name(self, name):
+        self.names.append(name)
+        self.update_best_name()
+
+
+class Team:
+    """
+    Simple class to represent a team.
+    """
+
+    def __init__(self, team_number, advisor, problem, ranking):
+        self.team_number: int = team_number
+        self.advisor: str = advisor
+        self.problem: str = problem
+        self.ranking: str = ranking
+        self.institution: int = None
+
+
 def main():
-    teams = read_teams()
-    find_institutions(teams)
+    teams, institutions = read_teams_and_institutions()
+    institutions = deduplicate_institutions(institutions)
+    for institution in institutions:
+        print(institution.names)
 
 
-def read_teams():
+def read_teams_and_institutions():
     with open("2015.csv", "r") as file:
-        return [row for row in csv.DictReader(file)]
+        rows = csv.DictReader(file)
+        teams = []
+        institutions = []
+        for row in rows:
+            team = Team(
+                team_number=row["Team Number"],
+                advisor=row["Advisor"],
+                problem=row["Problem"],
+                ranking=row["Ranking"],
+            )
+            institution = Institution(
+                id=len(institutions),
+                name=row["ï»¿Institution"],
+                city=row["City"],
+                state=row["State/Province"],
+                country=row["Country"]
+            )
+
+            institution.add_team(team)
+            team.institution = institution
+            institutions.append(institution)
+            teams.append(team)
+    return teams, institutions
 
 
 def find_teams_by_ranking(teams, ranking):
@@ -31,25 +108,57 @@ def find_avg_teams_per_institution():
     pass
 
 
-def find_institutions(teams):
-    institutions = []
-    for index, team in enumerate(teams):
-        # print(index/len(teams) * 100)
-        matching_institution = None
+def make_minimal_name(name):
+    # Remove all the extra stuff
+    # Because "Montana State University" and "Michigan State University" are
+    # more similar than "Montana" and "Michigan"
+    minimal_name = name
+    minimal_name = minimal_name.strip().lower()
+    minimal_name = minimal_name.replace("of", "")
+    minimal_name = minimal_name.replace("university", "")
+    minimal_name = minimal_name.replace("college", "")
+    minimal_name = minimal_name.replace("school", "")
+    minimal_name = minimal_name.replace("and", "")
+    minimal_name = minimal_name.replace("institute", "")
+    minimal_name = minimal_name.replace("  ", " ")
+    minimal_name = minimal_name.replace(",", "")
+    return minimal_name
 
+
+def deduplicate_institutions(institutions):
+    for current_institution in institutions:
+        if len(current_institution.names) != 1:
+            continue
+
+        if current_institution.flagged_for_deletion:
+            continue
+
+        current_min_name = make_minimal_name(
+            current_institution.best_name)
+        for institution_match_candidate in institutions:
+            if institution_match_candidate.flagged_for_deletion:
+                continue
+            candidate_min_name = make_minimal_name(
+                institution_match_candidate.best_name)
+            if current_min_name == candidate_min_name:
+                institution_match_candidate.merge(current_institution)
+                break
+            elif fuzz.ratio(current_min_name, candidate_min_name) > 90:
+                institution_match_candidate.merge(current_institution)
+                print(current_institution.best_name, "|",
+                      institution_match_candidate.best_name)
+                break
+        filtered_institutions = []
         for institution in institutions:
-            if team["ï»¿Institution"] == institution:
-                matching_institution = institution
-            elif fuzz.ratio(team["ï»¿Institution"], institution) > 80 \
-                    and fuzz.ratio(team["ï»¿Institution"].split(" ")[0], institution.split(" ")[0]) > 80:
-                matching_institution = institution
+            if not institution.flagged_for_deletion:
+                filtered_institutions.append(institution)
+        institutions = filtered_institutions
 
-        if matching_institution is None:
-            institutions.append(team["ï»¿Institution"])
-
-    institutions.sort()
+    filtered_institutions.sort(key=lambda institution: institution.best_name)
     with open("institutions.txt", "w") as file:
-        file.write(("\n").join(institutions))
+        file.write(("\n").join(
+            [institution.best_name for institution in institutions]))
+    return filtered_institutions
 
 
 if __name__ == "__main__":
