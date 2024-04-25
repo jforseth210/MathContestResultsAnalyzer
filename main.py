@@ -1,13 +1,14 @@
 import csv
 from thefuzz import fuzz
+from tqdm import tqdm
 
 POSSIBLE_RANKINGS = [
-    "Meritorious",
-    "Honorable Mention",
+    "Unsuccessful",
     "Successful Participant",
+    "Honorable Mention",
+    "Meritorious",
     "Finalist",
     "Outstanding Winner",
-    "Unsuccessful"
 ]
 
 
@@ -67,8 +68,63 @@ class Team:
 def main():
     teams, institutions = read_teams_and_institutions()
     institutions = deduplicate_institutions(institutions)
-    for institution in institutions:
-        print(institution.names)
+    with open("results.txt", "w") as file:
+        file.write("Average teams per institution: \n")
+        file.write(f"{find_avg_teams_per_institution(institutions)}\n")
+
+        file.write("\n")
+        file.write("Institutions with most teams:\n")
+
+        for institution in get_institutions_with_most_teams(institutions, 5):
+            file.write(
+                f"- {institution.best_name}: {len(institution.teams)}\n")
+
+        outstanding_institutions = set()
+        for team in find_teams_by_ranking(teams, "Outstanding Winner"):
+            outstanding_institutions.add(team.institution)
+
+        file.write("\n")
+        file.write("Outstanding Institutions:\n")
+        for institution in outstanding_institutions:
+            file.write(f"- {institution.best_name}\n")
+
+        file.write("\n")
+        file.write("Meritorious or Better US Teams:\n")
+        us_institutions = get_institutions_by_country(institutions, "USA")
+
+        us_teams = []
+        for institution in us_institutions:
+            us_teams += institution.teams
+
+        meritorious_or_better_us_teams = []
+        outstanding_teams = find_teams_by_ranking(
+            us_teams, "Outstanding Winner")
+        outstanding_teams.sort(
+            key=lambda team: team.institution.best_name)
+        meritorious_or_better_us_teams += outstanding_teams
+        print([team.ranking for team in meritorious_or_better_us_teams])
+
+        finalist_teams = find_teams_by_ranking(
+            us_teams, "Finalist")
+        finalist_teams.sort(
+            key=lambda team: team.institution.best_name)
+        meritorious_or_better_us_teams += finalist_teams
+
+        meritorious_teams = find_teams_by_ranking(
+            us_teams, "Meritorious")
+        meritorious_teams.sort(
+            key=lambda team: team.institution.best_name)
+        meritorious_or_better_us_teams += meritorious_teams
+
+        for team in meritorious_or_better_us_teams:
+            file.write(
+                f"- Team #{team.team_number}, advisor {team.advisor}, {team.institution.best_name}: {team.ranking}\n")
+    print("Done!")
+    print("Results written to results.txt")
+
+
+def get_institutions_by_country(institutions, country):
+    return [institution for institution in institutions if institution.country == country]
 
 
 def read_teams_and_institutions():
@@ -101,11 +157,18 @@ def read_teams_and_institutions():
 def find_teams_by_ranking(teams, ranking):
     if ranking not in POSSIBLE_RANKINGS:
         raise ValueError("Invalid ranking")
-    return [team for team in teams if team["Ranking"] == ranking]
+    return [team for team in teams if team.ranking == ranking]
 
 
-def find_avg_teams_per_institution():
-    pass
+def get_institutions_with_most_teams(institutions, n):
+    institutions.sort(key=lambda institution: len(
+        institution.teams), reverse=True)
+    return institutions[:n]
+
+
+def find_avg_teams_per_institution(institutions):
+    team_counts = [len(institution.teams) for institution in institutions]
+    return sum(team_counts) / len(team_counts)
 
 
 def make_minimal_name(name):
@@ -126,7 +189,8 @@ def make_minimal_name(name):
 
 
 def deduplicate_institutions(institutions):
-    for current_institution in institutions:
+    print("Analyzing institutions for duplicates...")
+    for current_institution in tqdm(institutions):
         if len(current_institution.names) != 1:
             continue
 
@@ -145,19 +209,14 @@ def deduplicate_institutions(institutions):
                 break
             elif fuzz.ratio(current_min_name, candidate_min_name) > 90:
                 institution_match_candidate.merge(current_institution)
-                print(current_institution.best_name, "|",
-                      institution_match_candidate.best_name)
                 break
-        filtered_institutions = []
-        for institution in institutions:
-            if not institution.flagged_for_deletion:
-                filtered_institutions.append(institution)
-        institutions = filtered_institutions
+    filtered_institutions = []
+    for institution in institutions:
+        if not institution.flagged_for_deletion:
+            filtered_institutions.append(institution)
+    institutions = filtered_institutions
 
     filtered_institutions.sort(key=lambda institution: institution.best_name)
-    with open("institutions.txt", "w") as file:
-        file.write(("\n").join(
-            [institution.best_name for institution in institutions]))
     return filtered_institutions
 
 
